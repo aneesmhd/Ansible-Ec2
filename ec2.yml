@@ -25,13 +25,10 @@
         var: myvpc
 
 
-    - set_fact:
-        myvpc_id: "{{myvpc.vpc.id}}"
-
     - name: "Create Public-Subnet 1"
       ec2_vpc_subnet:
         state: present
-        vpc_id: "{{myvpc_id}}"
+        vpc_id: "{{myvpc.vpc.id}}"
         cidr: 172.16.0.0/20
         region: "{{aws_region}}"
         az: "{{aws_region}}a"
@@ -45,7 +42,7 @@
     - name: "Create Public-Subnet 2"
       ec2_vpc_subnet:
         state: present
-        vpc_id: "{{myvpc_id}}"
+        vpc_id: "{{myvpc.vpc.id}}"
         cidr: 172.16.16.0/20
         region: "{{aws_region}}"
         az: "{{aws_region}}b"
@@ -60,7 +57,7 @@
     - name: "Create Private-Subnet 1"
       ec2_vpc_subnet:
         state: present
-        vpc_id: "{{myvpc_id}}"
+        vpc_id: "{{myvpc.vpc.id}}"
         cidr: 172.16.32.0/20
         region: "{{aws_region}}"
         az: "{{aws_region}}c"
@@ -74,10 +71,50 @@
 
     - name: "Create an Internet Gateway"
       ec2_vpc_igw:
-        vpc_id: "{{myvpc_id}}"
+        vpc_id: "{{myvpc.vpc.id}}"
         state: present
         region: "{{aws_region}}"
       register: igw
 
     - debug:
         var: igw
+
+
+    - name: "Create a NAT Gateway"
+      ec2_vpc_nat_gateway:
+        state: present
+        subnet_id: "{{public_subnet_2.subnet.id}}"
+        wait: yes
+        region: "{{aws_region}}"
+        if_exist_do_not_create: true
+      register: nat_gateway
+
+    - debug:
+        var: nat_gateway
+
+    - name: "Creating Route Table for Public Subnets"
+      ec2_vpc_route_table:
+        vpc_id: "{{myvpc.vpc.id}}"
+        region: "{{aws_region}}" 
+        tags:
+          Name: "Private Route table"
+        subnets:
+          - "{{public_subnet_1.subnet.id}}"
+          - "{{public_subnet_2.subnet.id}}"
+        routes:
+          - dest: "0.0.0.0/0"
+            gateway_id: "{{igw.gateway_id}}"
+
+
+    - name: "Creating Route Table for Private Subnet"
+      ec2_vpc_route_table:
+        vpc_id: "{{myvpc.vpc.id}}"
+        region: "{{aws_region}}" 
+        tags:
+          Name: "Private Route table"
+        subnets:
+          - "{{private_subnet_1.subnet.id}}"
+        routes:
+          - dest: "0.0.0.0/0"
+            gateway_id: "{{nat_gateway.nat_gateway_id}}"
+
