@@ -5,4 +5,4 @@ Deploying a setup with three instances (Webserver, bastion & Database). The play
 
 ### Requirements:
 - Install Ansible
-- Python boto library
+- Python boto
