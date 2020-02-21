@@ -8,7 +8,9 @@
   vars:
     aws_region: us-east-2
     vpc_name: web_vpc
-
+    instance_type: t2.micro
+    image_id: ami-0e38b48473ea57778
+    mykey: anees-ubuntu
 
   tasks:
   
@@ -97,12 +99,12 @@
         vpc_id: "{{myvpc.vpc.id}}"
         region: "{{aws_region}}" 
         tags:
-          Name: "Private Route table"
+          Name: "Public Route table"
         subnets:
           - "{{public_subnet_1.subnet.id}}"
           - "{{public_subnet_2.subnet.id}}"
         routes:
-          - dest: "0.0.0.0/0"
+          - dest: 0.0.0.0/0
             gateway_id: "{{igw.gateway_id}}"
 
 
@@ -115,6 +117,118 @@
         subnets:
           - "{{private_subnet_1.subnet.id}}"
         routes:
-          - dest: "0.0.0.0/0"
+          - dest: 0.0.0.0/0
             gateway_id: "{{nat_gateway.nat_gateway_id}}"
+    
+    - name: "Creating Security Group for Bastion"
+      ec2_group:
+        name: "Bastion-SG"
+        description: "Security Group for Bastion Server"
+        vpc_id: "{{myvpc.vpc.id}}"
+        region: "{{aws_region}}"
+        rules:
+          - proto: tcp
+            ports: 22
+            cidr_ip: 0.0.0.0/0
+            rule_desc: "Allow all connections to port 22"
+        rules_egress:
+          - proto: all
+            cidr_ip: 0.0.0.0/0
+      register: bastion_sg
+
+    - debug:
+        var: bastion_sg
+
+    - name: "Creating Security Group for Webserver"
+      ec2_group:
+        name: "Webserver-SG"
+        description: "Security Group for Webserver"
+        vpc_id: "{{myvpc.vpc.id}}"
+        region: "{{aws_region}}"
+        rules:
+          - proto: tcp
+            ports: 22
+            group_id: "{{bastion_sg.group_id}}"
+            rule_desc: "Allow SSH access from Bastion Server"
+          - proto: tcp
+            ports: 80
+            cidr_ip: 0.0.0.0/0
+            rule_desc: "Allow all connections to port 80"
+          - proto: tcp
+            ports: 443
+            cidr_ip: 0.0.0.0/0
+            rule_desc: "Allow all connections to port 443"
+        rules_egress:
+          - proto: all
+            cidr_ip: 0.0.0.0/0
+      register: webserver_sg
+
+    - debug:
+        var: webserver_sg
+  
+    - name: "Creating Security Group for Database Server"
+      ec2_group:
+        name: "Database-SG"
+        description: "Security Group for Database Server"
+        vpc_id: "{{myvpc.vpc.id}}"
+        region: "{{aws_region}}"
+        rules:
+          - proto: tcp
+            ports: 22
+            group_id: "{{bastion_sg.group_id}}"
+            rule_desc: "Allow SSH access from Bastion Server"
+          - proto: tcp
+            ports: 3306
+            group_id: "{{webserver_sg.group_id}}"
+            rule_desc: "Open port 3306 for webserver"
+        rules_egress:
+          - proto: all
+            cidr_ip: 0.0.0.0/0
+      register: database_sg
+
+    - debug:
+        var: database_sg
+
+    - name: "Creating an EC2 for webserver"
+      ec2:
+        key_name: "{{mykey}}"
+        instance_type: "{{instance_type}}" 
+        image: "{{image_id}}"
+        wait: yes
+        group_id: "{{webserver_sg.group_id}}"
+        vpc_subnet_id: "{{public_subnet_1.subnet.id}}"
+        instance_tags:
+          Name: webserver
+        assign_public_ip: yes
+        region: "{{aws_region}}"
+      register: webserver
+
+    - name: "Creating a Bastion Server"      
+      ec2:
+        key_name: "{{mykey}}"
+        instance_type: "{{instance_type}}"
+        image: "{{image_id}}"
+        wait: yes
+        group_id: "{{bastion_sg.group_id}}"
+        vpc_subnet_id: "{{public_subnet_2.subnet.id}}"
+        instance_tags:
+          Name: bastion
+        assign_public_ip: yes
+        region: "{{aws_region}}"
+      register: bastion
+
+    - name: "Creating a DB Server"
+      ec2:
+        key_name: "{{mykey}}"
+        instance_type: "{{instance_type}}"
+        image: "{{image_id}}"
+        wait: yes
+        group_id: "{{database_sg.group_id}}"
+        vpc_subnet_id: "{{private_subnet_1.subnet.id}}"
+        instance_tags:
+          Name: bastion
+        assign_public_ip: no
+        region: "{{aws_region}}"
+      register: database
+
 
